@@ -1,24 +1,33 @@
 from decimal import Decimal
 from rest_framework import serializers
 from django.db import transaction
-from .models import Product, Review, Cart, CartItem, Order, OrderItem
+from .models import Product, Review, Cart, CartItem, Order, OrderItem, ProductImage
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    discounted_price = serializers.SerializerMethodField(method_name='get_discount')
+    images = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
-        fields = ['id','title','description','price','discounted_price']
-    discounted_price = serializers.SerializerMethodField(method_name='get_discount')
-
+        fields = ['id', 'title', 'description', 'price', 'discounted_price', 'inventory', 'collection', 'images']
 
     def get_discount(self, obj: Product):
         return obj.price - (obj.price * Decimal(0.10))
 
+    def get_images(self, obj: Product):
+        return [img.image.url for img in obj.images.all()]
+
 
 class SimpleProductSerializer(serializers.ModelSerializer):
-        class Meta:
-            model = Product
-            fields = ['id','title','price']
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['id', 'title', 'price', 'images']
+
+    def get_images(self, obj: Product):
+        return [img.image.url for img in obj.images.all()]
 
 
 
@@ -50,24 +59,26 @@ class CartItemSerializer(serializers.ModelSerializer):
 
 
 class CartSerializer(serializers.ModelSerializer):
-    items = CartItemSerializer(many=True,read_only=True)
+    items = CartItemSerializer(many=True, read_only=True)
     total_price = serializers.SerializerMethodField(method_name='get_total_price')
 
-    def get_total_price(self,cart: Cart):
+    def get_total_price(self, cart: Cart):
+        # items are already prefetched — no extra queries here
         return sum([item.quantity * item.product.price for item in cart.items.all()])
 
     class Meta:
-         model = Cart
-         fields = ['cart_id','items','total_price']
+        model = Cart
+        fields = ['cart_id', 'items', 'total_price']
 
 class AddCartItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = CartItem
-        fields = ['id','product','quantity']
+        fields = ['id', 'product', 'quantity']
 
     def validate_product(self, product):
-        if Product.objects.filter(id=product).exists():
-            raise serializers.ValidationError("Product already exists")
+        # Raise only if the product does NOT exist in the catalogue
+        if not Product.objects.filter(id=product.id).exists():
+            raise serializers.ValidationError("Product does not exist")
         return product
 
 
@@ -103,10 +114,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    items = OrderItemSerializer(many=True,read_only=True)
+    items = OrderItemSerializer(many=True, read_only=True)
+
     class Meta:
         model = Order
-        fields = ['user', 'items']
+        # Excluded 'user' to avoid leaking user IDs in responses
+        fields = ['id', 'placed_at', 'status', 'items']
 
 
 class CreateOrderSerializer(serializers.Serializer):

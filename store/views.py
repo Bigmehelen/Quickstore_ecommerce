@@ -12,7 +12,8 @@ from rest_framework.mixins import CreateModelMixin, RetrieveModelMixin, DestroyM
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all()
+    # select_related avoids an extra query per product to fetch the collection
+    queryset = Product.objects.select_related('collection').prefetch_related('images').all()
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
 
@@ -35,8 +36,9 @@ class ReviewViewSet(viewsets.ModelViewSet):
 
 
 
-class CartViewSet(CreateModelMixin,RetrieveModelMixin,DestroyModelMixin,GenericViewSet):
-    queryset = Cart.objects.all()
+class CartViewSet(CreateModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet):
+    # prefetch_related prevents N+1 queries when serializing cart items + their products
+    queryset = Cart.objects.prefetch_related('items__product__images').all()
     serializer_class = CartSerializer
 
 
@@ -54,7 +56,7 @@ class CartItemViewSet(viewsets.ModelViewSet):
         return CartItemSerializer
 
     def get_queryset(self):
-        return CartItem.objects.filter(cart=self.kwargs['cart_pk'])
+        return CartItem.objects.filter(cart=self.kwargs['cart_pk']).select_related('product').prefetch_related('product__images')
 
 
     def get_serializer_context(self):
@@ -62,21 +64,25 @@ class CartItemViewSet(viewsets.ModelViewSet):
 
 
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.all()
-
     permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_queryset(self):
+        # Each user only sees their own orders; admins see all
+        if self.request.user.is_staff:
+            return Order.objects.prefetch_related('items__product__images').all()
+        return Order.objects.prefetch_related('items__product__images').filter(user=self.request.user)
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return CreateOrderSerializer
         return OrderSerializer
 
-
     def create(self, request, *args, **kwargs):
         serializer = CreateOrderSerializer(data=request.data, context={'user_id': self.request.user.id})
         serializer.is_valid(raise_exception=True)
-        Order = serializer.save()
-        serializer = OrderSerializer(Order)
+        order = serializer.save()
+        serializer = OrderSerializer(order)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -84,33 +90,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         return {'user_id': self.request.user.id}
 
 
-    # Create your views here.
-    # @api_view(['GET'])
-    # def product_list(request):
-    #    products = Product.objects.all()
-    #    serializer = ProductSerializer(products, many=True)
-    #    return Response(serializer.data, status=status.HTTP_200_OK)
 
-
-
-    # def create_product(request):
-    #     data = ProductSerializer(data=request.data)
-    #     data.is_valid(raise_exception=True)
-    #     data.save()
-    #     return Response(data.data, status=status.HTTP_201_CREATED)
-
-
-# # this can be implemented without the first instansiate method
-# class ProductView(ListAPIView):
-#     queryset = Product.objects.all()
-#     serializer_class = ProductSerializer
-
-
-# @api_view()
-# def product_detail(request, pk):
-#       product = get_object_or_404(Product, pk=pk)
-#       serializer = ProductSerializer(product)
-#       return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 

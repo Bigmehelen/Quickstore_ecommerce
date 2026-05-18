@@ -1,7 +1,9 @@
 from django.contrib import admin
-from .models import Product, Order, Collection
+from .models import Product, Order, Collection, ProductImage
 
-# Register your models here.
+class ProductImageInline(admin.TabularInline):
+    model = ProductImage
+    extra = 1
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
@@ -9,6 +11,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_per_page = 10
     search_fields = ['title','description']
     list_editable = ['price','inventory']
+    inlines = [ProductImageInline]
 
 
 @admin.register(Collection)
